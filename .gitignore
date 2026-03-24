@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 .env
 job_automation.db
+logs/

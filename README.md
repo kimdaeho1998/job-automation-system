@@ -1,6 +1,6 @@
 # 취업 준비 자동화 시스템
 
-Notion 데이터베이스를 운영 화면으로 사용하고, Python 애플리케이션이 공고 조회, 마감일 기반 알림 분류, 이메일 발송, 만료 공고 정리 준비를 수행하는 취업 준비 자동화 프로젝트입니다.
+Notion 데이터베이스를 운영 화면으로 사용하고, Python 애플리케이션이 공고 조회, 마감일 기반 알림 분류, Discord 알림 전송, 만료 공고 정리 준비를 수행하는 취업 준비 자동화 프로젝트입니다.
 
 ## 프로젝트 개요
 
@@ -11,7 +11,7 @@ Notion 데이터베이스를 운영 화면으로 사용하고, Python 애플리�
 - Notion DB를 채용 공고 운영 화면으로 사용
 - Python 서비스가 공고 조회와 알림 로직 수행
 - 마감일 기준 `D-7`, `D-3`, `D-1`, `D-day` 알림 대상 분류
-- 알림 대상이 있으면 이메일 전송
+- 알림 대상이 있으면 Discord Webhook 전송
 - 지난 공고는 별도 목록으로 분리해 이후 `마감` 상태 업데이트 준비
 
 ## 주요 기능
@@ -28,10 +28,13 @@ Notion 데이터베이스를 운영 화면으로 사용하고, Python 애플리�
 - 콘솔 요약 출력
   - 전체 Notion 공고 목록을 콘솔에 출력
   - 알림 대상 공고 목록을 별도로 출력
-- 이메일 알림 발송
-  - Gmail SMTP 기본값 기반 이메일 발송
-  - 알림 대상이 1건 이상일 때만 메일 전송
-  - 제목/본문 생성 로직을 분리해 다른 채널로 확장하기 쉽게 구성
+- Discord 알림 발송
+  - Discord Webhook 기반 알림 전송
+  - 알림 대상이 1건 이상일 때만 전송
+  - D-day 기준 이모지 강조와 다중 줄 메시지 구성
+- 이메일 알림 구조 유지
+  - 기존 SMTP 이메일 로직은 유지
+  - 현재 기본 운영 알림 채널은 Discord
 - 만료 공고 정리 준비
   - `expired_jobs`는 `title`, `company`, `deadline`, `notion_page_id`를 유지
   - 추후 Notion에서 삭제 대신 `진행상황 = 마감` 업데이트를 우선 적용할 수 있도록 함수 골격 제공
@@ -49,7 +52,7 @@ Notion 데이터베이스를 운영 화면으로 사용하고, Python 애플리�
 - 자동화 엔진: Python 프로젝트
   - Notion 공고 조회
   - 마감일 기반 알림 분류
-  - 이메일 알림 발송
+  - Discord 알림 발송
   - 만료 공고 정리 대상 목록 생성
 
 현재 메인 실행 흐름은 다음과 같습니다.
@@ -59,7 +62,7 @@ Notion 데이터베이스를 운영 화면으로 사용하고, Python 애플리�
 3. `ReminderService`가 공고를 `reminder_targets`와 `expired_jobs`로 분류합니다.
 4. 콘솔에 전체 공고와 알림 대상 공고를 출력합니다.
 5. `expired_jobs` 개수를 로그로 남깁니다.
-6. `reminder_targets`가 있으면 이메일을 발송합니다.
+6. `reminder_targets`가 있으면 Discord 알림을 발송합니다.
 7. 이후 스케줄러 확장 지점을 위해 기본 스케줄러 흐름을 유지합니다.
 
 ## 기술 스택
@@ -82,6 +85,7 @@ Notion 데이터베이스를 운영 화면으로 사용하고, Python 애플리�
   - `email.message`
   - `logging`
   - `sqlite3`
+  - `os`
 
 ## 프로젝트 구조
 
@@ -94,6 +98,7 @@ job-automation-system/
 │  ├─ services/
 │  │  ├─ notion_service.py
 │  │  ├─ reminder_service.py
+│  │  ├─ discord_service.py
 │  │  ├─ email_service.py
 │  │  ├─ job_collect_service.py
 │  │  └─ recommendation_service.py
@@ -115,13 +120,16 @@ job-automation-system/
 
 - `app/main.py`
   - 전체 실행 오케스트레이션
-  - 콘솔 출력, 이메일 발송, 로그 처리
+  - 콘솔 출력, Discord 전송, 로그 디렉터리 생성 처리
 - `app/services/notion_service.py`
   - Notion DB 조회
   - 만료 공고 상태 업데이트용 함수 골격 제공
 - `app/services/reminder_service.py`
   - 마감일 기준 알림 정책 처리
   - `reminder_targets`, `expired_jobs` 분리
+- `app/services/discord_service.py`
+  - Discord 메시지 포맷팅
+  - Discord Webhook 전송
 - `app/services/email_service.py`
   - 이메일 제목/본문 생성
   - SMTP 메일 발송
@@ -138,6 +146,10 @@ job-automation-system/
   - Notion API 인증 키
 - `NOTION_DB_ID`
   - 조회할 Notion 데이터베이스 ID
+- `DISCORD_ENABLED`
+  - Discord 알림 사용 여부
+- `DISCORD_WEBHOOK_URL`
+  - Discord Webhook URL
 - `EMAIL_HOST`
   - SMTP 호스트
 - `EMAIL_PORT`
@@ -183,8 +195,32 @@ python3 -m app.main
 - Notion 공고 목록 조회
 - 알림 대상/지난 공고 분류
 - 콘솔 출력
-- 이메일 발송 시도
+- Discord 알림 발송 시도
 - 만료 공고 개수 로그 출력
+- `logs/` 디렉터리 자동 생성
+
+## cron 자동 실행
+
+운영 환경에서는 cron으로 하루 2회 실행할 수 있습니다. 프로젝트는 실행 시 `logs/` 폴더를 자동 생성하므로, cron 로그를 파일로 남기기 쉽게 구성되어 있습니다.
+
+예시 cron 설정:
+
+```cron
+0 9 * * * cd /home/kimdaeho1998/job-automation-system && /home/kimdaeho1998/job-automation-system/.venv/bin/python -m app.main >> /home/kimdaeho1998/job-automation-system/logs/cron.log 2>&1
+0 18 * * * cd /home/kimdaeho1998/job-automation-system && /home/kimdaeho1998/job-automation-system/.venv/bin/python -m app.main >> /home/kimdaeho1998/job-automation-system/logs/cron.log 2>&1
+```
+
+등록 방법:
+
+```bash
+crontab -e
+```
+
+주의할 점:
+
+- 가상환경 Python 경로는 `.venv/bin/python`을 직접 지정합니다.
+- cron 환경은 PATH가 제한적이므로 `cd` 후 절대경로 실행 방식을 권장합니다.
+- Discord 전송 실패가 발생해도 프로그램은 종료되지 않고 로그에 남습니다.
 
 ## 테스트
 
@@ -216,7 +252,8 @@ python3 -m pytest tests/test_reminder_service.py
 
 - Notion DB 조회 가능
 - 마감일 기반 알림 정책 구현
-- SMTP 이메일 발송 구현
+- Discord Webhook 알림 구현
+- SMTP 이메일 발송 구조 유지
 - 만료 공고 정리 대상 목록 생성 가능
 - Notion 상태 업데이트 함수는 시그니처와 TODO 골격만 구현
 

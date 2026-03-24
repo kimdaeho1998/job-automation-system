@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from logging import Logger
 
 from app.config import get_settings
@@ -20,6 +21,7 @@ from app.services.reminder_service import (
     ReminderService,
 )
 from app.utils.logger import setup_logger
+from app.utils.date_utils import now_local
 
 
 def _format_schedule_list(schedules: list[dict[str, str | None]]) -> str:
@@ -65,6 +67,12 @@ def _print_console_summary(
     print(_format_schedule_list(schedules))
     print()
     print(reminder_service.format_reminders_for_console(reminder_targets))
+
+
+def _ensure_runtime_directories() -> None:
+    """cron 환경에서도 로그 파일이 생성될 수 있도록 디렉터리를 보장한다."""
+
+    os.makedirs("logs", exist_ok=True)
 
 
 def _send_reminder_email_if_needed(
@@ -148,12 +156,17 @@ def _process_job_notifications(
 def main() -> None:
     settings = get_settings()
     logger = setup_logger(settings.log_level)
+    _ensure_runtime_directories()
     initialize_database()
     scheduler = JobAutomationScheduler(settings=settings, logger=logger)
     notion_service = NotionService(settings=settings, logger=logger)
     reminder_service = ReminderService(settings=settings, logger=logger)
 
     logger.info("Starting job automation system")
+    logger.info(
+        "Scheduler execution timestamp: %s",
+        now_local().isoformat(timespec="seconds"),
+    )
     try:
         _process_job_notifications(
             notion_service=notion_service,
