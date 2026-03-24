@@ -7,6 +7,7 @@ from logging import Logger
 from app.config import get_settings
 from app.db.sqlite import initialize_database
 from app.scheduler import JobAutomationScheduler
+from app.services.discord_service import send_discord_notification
 from app.services.email_service import (
     build_reminder_email_body,
     build_reminder_email_subject,
@@ -87,9 +88,42 @@ def _send_reminder_email_if_needed(
     logger.error("Email notification failed.")
 
 
+def _send_discord_notification_if_needed(
+    reminder_targets: list[ReminderJobItem],
+    discord_enabled: bool,
+    discord_webhook_url: str,
+    logger: Logger,
+) -> None:
+    """Discord 설정과 알림 대상 여부를 확인한 뒤 Webhook 전송을 수행한다."""
+
+    if not discord_enabled:
+        return
+
+    logger.info("Discord notification enabled")
+
+    if not reminder_targets:
+        return
+
+    if not discord_webhook_url.strip():
+        logger.error("Discord webhook configuration is incomplete")
+        return
+
+    logger.info(
+        "Sending Discord notification for %s reminder target(s)",
+        len(reminder_targets),
+    )
+    if send_discord_notification(discord_webhook_url, reminder_targets):
+        logger.info("Discord notification sent successfully")
+        return
+
+    logger.error("Discord notification failed")
+
+
 def _process_job_notifications(
     notion_service: NotionService,
     reminder_service: ReminderService,
+    discord_enabled: bool,
+    discord_webhook_url: str,
     logger: Logger,
 ) -> None:
     """조회, 분류, 출력, 메일 전송 흐름을 한 번에 처리한다."""
@@ -103,7 +137,12 @@ def _process_job_notifications(
 
     _print_console_summary(schedules, reminder_targets, reminder_service)
     logger.info("Expired jobs queued for cleanup: %s", len(expired_jobs))
-    _send_reminder_email_if_needed(reminder_targets, logger)
+    _send_discord_notification_if_needed(
+        reminder_targets=reminder_targets,
+        discord_enabled=discord_enabled,
+        discord_webhook_url=discord_webhook_url,
+        logger=logger,
+    )
 
 
 def main() -> None:
@@ -119,6 +158,8 @@ def main() -> None:
         _process_job_notifications(
             notion_service=notion_service,
             reminder_service=reminder_service,
+            discord_enabled=settings.discord_enabled,
+            discord_webhook_url=settings.discord_webhook_url,
             logger=logger,
         )
     except ValueError as exc:
